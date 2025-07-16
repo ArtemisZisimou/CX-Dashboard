@@ -28,7 +28,7 @@ if uploaded_file:
         date_range = st.date_input("Date Range", [df['Date'].min(), df['Date'].max()])
         df = df[(df['Date'] >= pd.to_datetime(date_range[0])) & (df['Date'] <= pd.to_datetime(date_range[1]))]
 
-        for filter_col in ['APP_TYPE', 'APP_VERSION', 'Agent']:
+        for filter_col in ['APP_TYPE', 'APP_VERSION', 'Agent', 'Channel']:
             if filter_col in df.columns:
                 options = df[filter_col].dropna().unique().tolist()
                 selected = st.multiselect(filter_col, options, default=options)
@@ -44,13 +44,16 @@ if uploaded_file:
     cols[0].metric("Responses", len(df))
 
     if csat_cols:
+        df[csat_cols[0]] = pd.to_numeric(df[csat_cols[0]], errors='coerce')
         avg_csat = df[csat_cols[0]].mean()
         cols[1].metric("Avg CSAT", round(avg_csat, 2))
     if ces_cols:
+        df[ces_cols[0]] = pd.to_numeric(df[ces_cols[0]], errors='coerce')
         avg_ces = df[ces_cols[0]].mean()
         cols[2].metric("Avg CES", round(avg_ces, 2))
 
     if nps_cols:
+        df[nps_cols[0]] = pd.to_numeric(df[nps_cols[0]], errors='coerce')
         nps_col = nps_cols[0]
         promoters = df[nps_col][df[nps_col] >= 9].count()
         passives = df[nps_col][(df[nps_col] >= 7) & (df[nps_col] <= 8)].count()
@@ -88,6 +91,12 @@ if uploaded_file:
                 })
             ).reset_index()
             summary = pd.merge(summary, breakdown, on='EntryPoint', how='left')
+
+        # For Abandonment survey, include fixed_cols as frequency counts
+        if "abandonment" in survey_type.lower() and fixed_cols:
+            for col in fixed_cols:
+                reason_freq = df.groupby('EntryPoint')[col].value_counts().unstack().fillna(0).astype(int)
+                summary = pd.merge(summary, reason_freq, on='EntryPoint', how='left')
 
         st.dataframe(summary)
 
