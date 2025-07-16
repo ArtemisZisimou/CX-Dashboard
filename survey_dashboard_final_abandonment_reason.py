@@ -102,7 +102,7 @@ if uploaded_file:
         st.dataframe(summary)
 
     st.markdown("### Trend Over Time")
-    df['Day'] = df['Date'].dt.date
+    
 
     trend_agg = {}
     if csat_cols:
@@ -110,30 +110,24 @@ if uploaded_file:
     if ces_cols:
         trend_agg[ces_cols[0]] = 'mean'
 
-    trend = df.groupby('Day').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
+    trend = df.groupby('Day')  # Removed daily trend chart.agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
 
     if nps_cols:
-        nps_trend = df.groupby('Day')[nps_cols[0]].apply(
-            lambda g: pd.Series({
-                'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
-                'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
-                'Detractors %': (g <= 6).sum() / len(g) * 100 if len(g) else 0,
-                't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
+        nps_trend = df.groupby('Day')  # Removed daily trend chart[nps_cols[0]].apply(
+        lambda g: pd.Series({
+            'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
+            'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
+            'Detractors %': (g <= 6).sum() / len(g) * 100 if len(g) else 0,
+            't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
             })
-        ).reset_index()
         trend = pd.merge(trend, nps_trend, on='Day', how='outer')
-
-    for col in trend.columns:
-        if col != 'Month':
-            fig = px.line(trend, x='Day', y=col, title=f"{col} Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("### Fixed-Choice Reason Frequencies")
     for reason_col in fixed_cols:
         reason_counts = df[reason_col].value_counts().reset_index()
         reason_counts.columns = ['Reason', 'Count']
         fig = px.bar(reason_counts, x='Reason', y='Count', title=f"{reason_col} - Frequency")
-        st.plotly_chart(fig, use_container_width=True)
+    # st.plotly_chart(fig, use_container_width=True)
 
 else:
     st.info("Please upload an Excel file to start.")
