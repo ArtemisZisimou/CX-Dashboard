@@ -101,7 +101,7 @@ if uploaded_file:
         st.dataframe(summary)
 
     st.markdown("### Trend Over Time")
-    df['Month'] = df['Date'].dt.to_period('M').dt.to_timestamp()
+    df['Week'] = df['Date'].dt.to_period('W').dt.start_time
 
     trend_agg = {}
     if csat_cols:
@@ -109,10 +109,10 @@ if uploaded_file:
     if ces_cols:
         trend_agg[ces_cols[0]] = 'mean'
 
-    trend = df.groupby('Month').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
+    trend = df.groupby('Week').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
 
     if nps_cols:
-        nps_trend = df.groupby('Month')[nps_cols[0]].apply(
+        nps_trend = df.groupby('Week')[nps_cols[0]].apply(
             lambda g: pd.Series({
                 'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
                 'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
@@ -120,11 +120,11 @@ if uploaded_file:
                 't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
             })
         ).reset_index()
-        trend = pd.merge(trend, nps_trend, on='Month', how='outer')
+        trend = pd.merge(trend, nps_trend, on='Week', how='outer')
 
     for col in trend.columns:
         if col != 'Month':
-            fig = px.line(trend, x='Month', y=col, title=f"{col} Over Time", markers=True)
+            fig = px.line(trend, x='Week', y=col, title=f"{col} Over Time", markers=True)
             st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("### Fixed-Choice Reason Frequencies")
