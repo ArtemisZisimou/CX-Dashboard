@@ -10,145 +10,119 @@ uploaded_file = st.file_uploader("Upload your survey Excel file", type=["xlsx"])
 if uploaded_file:
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
-
     survey_type = st.selectbox("Select Survey Type", sheet_names)
     df = xls.parse(survey_type)
 
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
+    # Standardize date column
+    if 'timestamp' in df.columns:
+        df['Date'] = pd.to_datetime(df['timestamp'])
+    else:
+        st.warning("No 'timestamp' column found in dataset.")
+        st.stop()
+
+    # Drop columns to ignore
+    ignore_columns = [col for col in df.columns if 'open_text' in col or 'SurveyID' in col]
+    df = df.drop(columns=ignore_columns, errors='ignore')
 
     # Sidebar filters
     with st.sidebar:
         st.header("Filters")
-        min_date = df['Date'].min() if 'Date' in df.columns else None
-        max_date = df['Date'].max() if 'Date' in df.columns else None
-        if min_date and max_date:
-            date_range = st.date_input("Date Range", [min_date, max_date])
-        else:
-            date_range = None
-        channel_options = df['Channel'].unique().tolist() if 'Channel' in df.columns else []
-        selected_channels = st.multiselect("Channel", channel_options, default=channel_options)
-        trigger_options = df['Trigger Point'].unique().tolist() if 'Trigger Point' in df.columns else []
-        selected_triggers = st.multiselect("Trigger Point", trigger_options, default=trigger_options)
+        date_range = st.date_input("Date Range", [df['Date'].min(), df['Date'].max()])
+        df = df[(df['Date'] >= pd.to_datetime(date_range[0])) & (df['Date'] <= pd.to_datetime(date_range[1]))]
 
-    # Apply filters
-    filtered_df = df.copy()
-    if date_range and 'Date' in df.columns:
-        filtered_df = filtered_df[
-            (filtered_df['Date'] >= pd.to_datetime(date_range[0])) &
-            (filtered_df['Date'] <= pd.to_datetime(date_range[1]))
-        ]
-    if 'Channel' in df.columns:
-        filtered_df = filtered_df[filtered_df['Channel'].isin(selected_channels)]
-    if 'Trigger Point' in df.columns:
-        filtered_df = filtered_df[filtered_df['Trigger Point'].isin(selected_triggers)]
+        for filter_col in ['APP_TYPE', 'APP_VERSION', 'Agent']:
+            if filter_col in df.columns:
+                options = df[filter_col].dropna().unique().tolist()
+                selected = st.multiselect(filter_col, options, default=options)
+                df = df[df[filter_col].isin(selected)]
 
-    has_CSAT = 'CSAT' in filtered_df.columns
-    has_CES = 'CES' in filtered_df.columns
-    has_NPS = 'NPS' in filtered_df.columns
-    has_Star = 'Star' in filtered_df.columns
+    # Identify metric columns
+    csat_cols = [col for col in df.columns if 'csat' in col.lower()]
+    ces_cols = [col for col in df.columns if 'ces' in col.lower()]
+    nps_cols = [col for col in df.columns if 'nps' in col.lower()]
+    fixed_cols = [col for col in df.columns if 'fixed' in col.lower()]
 
     st.subheader(f"Survey Results: {survey_type}")
-
-    # Scorecards
     cols = st.columns(4)
-    cols[0].metric("Responses", len(filtered_df))
-    if has_CSAT:
-        cols[1].metric("Avg CSAT", round(filtered_df['CSAT'].mean(), 2))
-    if has_CES:
-        cols[2].metric("Avg CES", round(filtered_df['CES'].mean(), 2))
-    if has_NPS:
-        promoters = filtered_df['NPS'][filtered_df['NPS'] >= 9].count()
-        passives = filtered_df['NPS'][(filtered_df['NPS'] >= 7) & (filtered_df['NPS'] <= 8)].count()
-        detractors = filtered_df['NPS'][filtered_df['NPS'] <= 6].count()
-        total_nps = filtered_df['NPS'].count()
-        tnps = ((promoters - detractors) / total_nps * 100) if total_nps else 0
+    cols[0].metric("Responses", len(df))
+
+    # CSAT & CES scorecards
+    if csat_cols:
+        avg_csat = df[csat_cols[0]].mean()
+        cols[1].metric("Avg CSAT", round(avg_csat, 2))
+    if ces_cols:
+        avg_ces = df[ces_cols[0]].mean()
+        cols[2].metric("Avg CES", round(avg_ces, 2))
+
+    # NPS scorecard
+    if nps_cols:
+        nps_col = nps_cols[0]
+        promoters = df[nps_col][df[nps_col] >= 9].count()
+        passives = df[nps_col][(df[nps_col] >= 7) & (df[nps_col] <= 8)].count()
+        detractors = df[nps_col][df[nps_col] <= 6].count()
+        total = df[nps_col].count()
+        tnps = ((promoters - detractors) / total * 100) if total else 0
         cols[3].metric("t-NPS", round(tnps, 2))
-        st.write(f"Promoters: {promoters} ({promoters/total_nps:.0%}) | Passives: {passives} ({passives/total_nps:.0%}) | Detractors: {detractors} ({detractors/total_nps:.0%})")
-    if has_Star:
-        cols[1].metric("Avg Star Rating", round(filtered_df['Star'].mean(), 2))
+        st.markdown(f"**Promoters**: {promoters} ({promoters/total:.1%})  |  "
+                    f"**Passives**: {passives} ({passives/total:.1%})  |  "
+                    f"**Detractors**: {detractors} ({detractors/total:.1%})")
 
-    # Scores by Trigger Point + Reason Frequency
-    st.markdown("### Scores by Trigger Point")
+    # Scores by Trigger Point
+    st.markdown("### Scores by EntryPoint")
+    if 'EntryPoint' in df.columns:
+        group = df.groupby('EntryPoint')
+        summary = group.agg({
+            **{csat_cols[0]: 'mean'} if csat_cols else {},
+            **{ces_cols[0]: 'mean'} if ces_cols else {},
+            **{nps_cols[0]: 'mean'} if nps_cols else {},
+            'Date': 'count'
+        }).rename(columns={'Date': 'Responses'}).reset_index()
 
-    if 'Trigger Point' in filtered_df.columns:
-        group = filtered_df.groupby('Trigger Point')
-        rows = []
-        for name, group_df in group:
-            row = {'Trigger Point': name, 'Responses': len(group_df)}
-            if has_CSAT:
-                row['CSAT'] = group_df['CSAT'].mean()
-            if has_CES:
-                row['CES'] = group_df['CES'].mean()
-            if has_NPS:
-                p = group_df['NPS'][group_df['NPS'] >= 9].count()
-                pa = group_df['NPS'][(group_df['NPS'] >= 7) & (group_df['NPS'] <= 8)].count()
-                d = group_df['NPS'][group_df['NPS'] <= 6].count()
-                total = group_df['NPS'].count()
-                row['t-NPS'] = ((p - d) / total * 100) if total else 0
-                row['Promoters %'] = (p / total * 100) if total else 0
-                row['Passives %'] = (pa / total * 100) if total else 0
-                row['Detractors %'] = (d / total * 100) if total else 0
-            if has_Star:
-                row['Star'] = group_df['Star'].mean()
-            if 'reason' in group_df.columns:
-                reason_counts = group_df['reason'].value_counts()
-                for reason, count in reason_counts.items():
-                    row[f"Reason: {reason}"] = count
-            rows.append(row)
+        # Add NPS breakdown per EntryPoint
+        if nps_cols:
+            nps_col = nps_cols[0]
+            breakdown = group[nps_col].apply(
+                lambda g: pd.Series({
+                    'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
+                    'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
+                    'Detractors %': (g <= 6).sum() / len(g) * 100 if len(g) else 0,
+                    't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
+                })
+            ).reset_index()
+            summary = pd.merge(summary, breakdown, on='EntryPoint', how='left')
 
-        summary_df = pd.DataFrame(rows)
-        st.dataframe(summary_df)
+        st.dataframe(summary)
 
-    # Monthly Trends
-# Monthly Trends
-st.markdown("### Trend Over Time")
+    # Monthly trend
+    st.markdown("### Trend Over Time")
+    df['Month'] = df['Date'].dt.to_period('M').dt.to_timestamp()
+    trend = df.groupby('Month').agg({
+        **{csat_cols[0]: 'mean'} if csat_cols else {},
+        **{ces_cols[0]: 'mean'} if ces_cols else {},
+    }).reset_index()
 
-if 'Date' in filtered_df.columns:
-    filtered_df['Month'] = filtered_df['Date'].dt.to_period('M').dt.to_timestamp()
-
-    agg_dict = {}
-    if has_CSAT:
-        agg_dict['CSAT'] = 'mean'
-    if has_CES:
-        agg_dict['CES'] = 'mean'
-    if has_Star:
-        agg_dict['Star'] = 'mean'
-
-    monthly = filtered_df.groupby('Month').agg(agg_dict).reset_index() if agg_dict else pd.DataFrame({'Month': []})
-
-    # NPS metrics
-    if has_NPS:
-        monthly_nps = filtered_df.groupby('Month').apply(
+    if nps_cols:
+        nps_trend = df.groupby('Month')[nps_cols[0]].apply(
             lambda g: pd.Series({
-                'Promoters %': (g['NPS'] >= 9).sum() / len(g) * 100 if len(g) else 0,
-                'Passives %': ((g['NPS'] >= 7) & (g['NPS'] <= 8)).sum() / len(g) * 100 if len(g) else 0,
-                'Detractors %': (g['NPS'] <= 6).sum() / len(g) * 100 if len(g) else 0,
-                't-NPS': (((g['NPS'] >= 9).sum() - (g['NPS'] <= 6).sum()) / len(g) * 100) if len(g) else 0
+                'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
+                'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
+                'Detractors %': (g <= 6).sum() / len(g) * 100 if len(g) else 0,
+                't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
             })
         ).reset_index()
-        monthly = pd.merge(monthly, monthly_nps, on='Month', how='outer')
+        trend = pd.merge(trend, nps_trend, on='Month', how='outer')
 
-    if not monthly.empty:
-        for col in monthly.columns:
-            if col != 'Month':
-                fig = px.line(monthly, x='Month', y=col, title=f"{col} over Time", markers=True)
-                st.plotly_chart(fig, use_container_width=True)
+    for col in trend.columns:
+        if col != 'Month':
+            fig = px.line(trend, x='Month', y=col, title=f"{col} Over Time", markers=True)
+            st.plotly_chart(fig, use_container_width=True)
 
-
-    # Reasons / Improvements
-    st.markdown("### Reasons / Improvement Points Frequency")
-
-    if 'reason' in filtered_df.columns:
-        reason_counts = filtered_df['reason'].value_counts().reset_index()
+    # Reasons frequency
+    st.markdown("### Fixed-Choice Reason Frequencies")
+    for reason_col in fixed_cols:
+        reason_counts = df[reason_col].value_counts().reset_index()
         reason_counts.columns = ['Reason', 'Count']
-        fig = px.bar(reason_counts, x='Reason', y='Count', title="Frequency of Reasons Selected")
-        st.plotly_chart(fig, use_container_width=True)
-
-    if 'Improvement points' in filtered_df.columns:
-        improvement_counts = filtered_df['Improvement points'].value_counts().reset_index()
-        improvement_counts.columns = ['Improvement Point', 'Count']
-        fig = px.bar(improvement_counts, x='Improvement Point', y='Count', title="Frequency of Improvement Points Selected")
+        fig = px.bar(reason_counts, x='Reason', y='Count', title=f"{reason_col} - Frequency")
         st.plotly_chart(fig, use_container_width=True)
 
 else:
