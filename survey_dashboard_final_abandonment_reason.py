@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -13,18 +14,15 @@ if uploaded_file:
     survey_type = st.selectbox("Select Survey Type", sheet_names)
     df = xls.parse(survey_type)
 
-    # Standardize date column
     if 'timestamp' in df.columns:
         df['Date'] = pd.to_datetime(df['timestamp'])
     else:
         st.warning("No 'timestamp' column found in dataset.")
         st.stop()
 
-    # Drop columns to ignore
     ignore_columns = [col for col in df.columns if 'open_text' in col or 'SurveyID' in col]
     df = df.drop(columns=ignore_columns, errors='ignore')
 
-    # Sidebar filters
     with st.sidebar:
         st.header("Filters")
         date_range = st.date_input("Date Range", [df['Date'].min(), df['Date'].max()])
@@ -36,7 +34,6 @@ if uploaded_file:
                 selected = st.multiselect(filter_col, options, default=options)
                 df = df[df[filter_col].isin(selected)]
 
-    # Identify metric columns
     csat_cols = [col for col in df.columns if 'csat' in col.lower()]
     ces_cols = [col for col in df.columns if 'ces' in col.lower()]
     nps_cols = [col for col in df.columns if 'nps' in col.lower()]
@@ -46,7 +43,6 @@ if uploaded_file:
     cols = st.columns(4)
     cols[0].metric("Responses", len(df))
 
-    # CSAT & CES scorecards
     if csat_cols:
         avg_csat = df[csat_cols[0]].mean()
         cols[1].metric("Avg CSAT", round(avg_csat, 2))
@@ -54,7 +50,6 @@ if uploaded_file:
         avg_ces = df[ces_cols[0]].mean()
         cols[2].metric("Avg CES", round(avg_ces, 2))
 
-    # NPS scorecard
     if nps_cols:
         nps_col = nps_cols[0]
         promoters = df[nps_col][df[nps_col] >= 9].count()
@@ -67,18 +62,21 @@ if uploaded_file:
                     f"**Passives**: {passives} ({passives/total:.1%})  |  "
                     f"**Detractors**: {detractors} ({detractors/total:.1%})")
 
-    # Scores by Trigger Point
     st.markdown("### Scores by EntryPoint")
     if 'EntryPoint' in df.columns:
         group = df.groupby('EntryPoint')
-        summary = group.agg({
-            **{csat_cols[0]: 'mean'} if csat_cols else {},
-            **{ces_cols[0]: 'mean'} if ces_cols else {},
-            **{nps_cols[0]: 'mean'} if nps_cols else {},
-            'Date': 'count'
-        }).rename(columns={'Date': 'Responses'}).reset_index()
 
-        # Add NPS breakdown per EntryPoint
+        agg_dict = {}
+        if csat_cols:
+            agg_dict[csat_cols[0]] = 'mean'
+        if ces_cols:
+            agg_dict[ces_cols[0]] = 'mean'
+        if nps_cols:
+            agg_dict[nps_cols[0]] = 'mean'
+        agg_dict['Date'] = 'count'
+
+        summary = group.agg(agg_dict).rename(columns={'Date': 'Responses'}).reset_index()
+
         if nps_cols:
             nps_col = nps_cols[0]
             breakdown = group[nps_col].apply(
@@ -93,13 +91,16 @@ if uploaded_file:
 
         st.dataframe(summary)
 
-    # Monthly trend
     st.markdown("### Trend Over Time")
     df['Month'] = df['Date'].dt.to_period('M').dt.to_timestamp()
-    trend = df.groupby('Month').agg({
-        **{csat_cols[0]: 'mean'} if csat_cols else {},
-        **{ces_cols[0]: 'mean'} if ces_cols else {},
-    }).reset_index()
+
+    trend_agg = {}
+    if csat_cols:
+        trend_agg[csat_cols[0]] = 'mean'
+    if ces_cols:
+        trend_agg[ces_cols[0]] = 'mean'
+
+    trend = df.groupby('Month').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
 
     if nps_cols:
         nps_trend = df.groupby('Month')[nps_cols[0]].apply(
@@ -117,7 +118,6 @@ if uploaded_file:
             fig = px.line(trend, x='Month', y=col, title=f"{col} Over Time", markers=True)
             st.plotly_chart(fig, use_container_width=True)
 
-    # Reasons frequency
     st.markdown("### Fixed-Choice Reason Frequencies")
     for reason_col in fixed_cols:
         reason_counts = df[reason_col].value_counts().reset_index()
