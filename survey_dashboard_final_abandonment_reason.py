@@ -30,7 +30,7 @@ if uploaded_file:
 
         for filter_col in ['APP_TYPE', 'APP_VERSION', 'Agent', 'Channel']:
             if filter_col in df.columns:
-                options = df[filter_col].dropna().unique().tolist()
+                options = xls.parse(survey_type)[filter_col].dropna().unique().tolist()
                 selected = st.multiselect(filter_col, options, default=options)
                 df = df[df[filter_col].isin(selected)]
 
@@ -44,26 +44,27 @@ if uploaded_file:
     cols[0].metric("Responses", len(df))
 
     if csat_cols:
-        df[csat_cols[0]] = pd.to_numeric(df[csat_cols[0]], errors='coerce')
-        avg_csat = df[csat_cols[0]].mean()
-        cols[1].metric("Avg CSAT", round(avg_csat, 2))
+        if csat_cols:
+            df[csat_cols[0]] = pd.to_numeric(df[csat_cols[0]], errors='coerce')
+            avg_csat = df[csat_cols[0]].mean() if csat_cols else None
+            cols[1].metric("Avg CSAT", round(avg_csat, 2))
     if ces_cols:
-        df[ces_cols[0]] = pd.to_numeric(df[ces_cols[0]], errors='coerce')
-        avg_ces = df[ces_cols[0]].mean()
-        cols[2].metric("Avg CES", round(avg_ces, 2))
+            df[ces_cols[0]] = pd.to_numeric(df[ces_cols[0]], errors='coerce')
+            avg_ces = df[ces_cols[0]].mean()
+            cols[2].metric("Avg CES", round(avg_ces, 2))
 
     if nps_cols:
-        df[nps_cols[0]] = pd.to_numeric(df[nps_cols[0]], errors='coerce')
-        nps_col = nps_cols[0]
-        promoters = df[nps_col][df[nps_col] >= 9].count()
-        passives = df[nps_col][(df[nps_col] >= 7) & (df[nps_col] <= 8)].count()
-        detractors = df[nps_col][df[nps_col] <= 6].count()
-        total = df[nps_col].count()
-        tnps = ((promoters - detractors) / total * 100) if total else 0
-        cols[3].metric("t-NPS", round(tnps, 2))
-        st.markdown(f"**Promoters**: {promoters} ({promoters/total:.1%})  |  "
-                    f"**Passives**: {passives} ({passives/total:.1%})  |  "
-                    f"**Detractors**: {detractors} ({detractors/total:.1%})")
+            df[nps_cols[0]] = pd.to_numeric(df[nps_cols[0]], errors='coerce')
+            nps_col = nps_cols[0]
+            promoters = df[nps_col][df[nps_col] >= 9].count()
+            passives = df[nps_col][(df[nps_col] >= 7) & (df[nps_col] <= 8)].count()
+            detractors = df[nps_col][df[nps_col] <= 6].count()
+            total = df[nps_col].count()
+            tnps = ((promoters - detractors) / total * 100) if total else 0
+            cols[3].metric("t-NPS", round(tnps, 2))
+            st.markdown(f"**Promoters**: {promoters} ({promoters/total:.1%})  |  "
+                        f"**Passives**: {passives} ({passives/total:.1%})  |  "
+                        f"**Detractors**: {detractors} ({detractors/total:.1%})")
 
     st.markdown("### Scores by EntryPoint")
     if 'EntryPoint' in df.columns:
@@ -101,7 +102,7 @@ if uploaded_file:
         st.dataframe(summary)
 
     st.markdown("### Trend Over Time")
-    df['Week'] = df['Date'].dt.to_period('W').dt.start_time
+    df['Day'] = df['Date'].dt.date
 
     trend_agg = {}
     if csat_cols:
@@ -109,10 +110,10 @@ if uploaded_file:
     if ces_cols:
         trend_agg[ces_cols[0]] = 'mean'
 
-    trend = df.groupby('Week').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
+    trend = df.groupby('Day').agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
 
     if nps_cols:
-        nps_trend = df.groupby('Week')[nps_cols[0]].apply(
+        nps_trend = df.groupby('Day')[nps_cols[0]].apply(
             lambda g: pd.Series({
                 'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
                 'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
@@ -120,11 +121,11 @@ if uploaded_file:
                 't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
             })
         ).reset_index()
-        trend = pd.merge(trend, nps_trend, on='Week', how='outer')
+        trend = pd.merge(trend, nps_trend, on='Day', how='outer')
 
     for col in trend.columns:
         if col != 'Month':
-            fig = px.line(trend, x='Week', y=col, title=f"{col} Over Time", markers=True)
+            fig = px.line(trend, x='Day', y=col, title=f"{col} Over Time", markers=True)
             st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("### Fixed-Choice Reason Frequencies")
