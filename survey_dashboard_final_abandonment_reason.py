@@ -101,27 +101,6 @@ if uploaded_file:
 
         st.dataframe(summary)
 
-    st.markdown("### Trend Over Time")
-    
-
-    trend_agg = {}
-    if csat_cols:
-        trend_agg[csat_cols[0]] = 'mean'
-    if ces_cols:
-        trend_agg[ces_cols[0]] = 'mean'
-
-    trend = df.groupby('Day')  # Removed daily trend chart.agg(trend_agg).reset_index() if trend_agg else pd.DataFrame()
-
-    if nps_cols:
-        nps_trend = df.groupby('Day')  # Removed daily trend chart[nps_cols[0]].apply(
-        lambda g: pd.Series({
-            'Promoters %': (g >= 9).sum() / len(g) * 100 if len(g) else 0,
-            'Passives %': ((g >= 7) & (g <= 8)).sum() / len(g) * 100 if len(g) else 0,
-            'Detractors %': (g <= 6).sum() / len(g) * 100 if len(g) else 0,
-            't-NPS': ((g >= 9).sum() - (g <= 6).sum()) / len(g) * 100 if len(g) else 0
-            })
-        trend = pd.merge(trend, nps_trend, on='Day', how='outer')
-
     st.markdown("### Fixed-Choice Reason Frequencies")
     for reason_col in fixed_cols:
         reason_counts = df[reason_col].value_counts().reset_index()
