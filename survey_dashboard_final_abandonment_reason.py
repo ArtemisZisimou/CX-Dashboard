@@ -1,6 +1,6 @@
 
 import streamlit as st
-import pandas as pd 
+import pandas as pd
 import plotly.express as px
 
 st.set_page_config(page_title="Survey Dashboard", layout="wide")
@@ -28,7 +28,7 @@ if uploaded_file:
         date_range = st.date_input("Date Range", [df['Date'].min(), df['Date'].max()])
         df = df[(df['Date'] >= pd.to_datetime(date_range[0])) & (df['Date'] <= pd.to_datetime(date_range[1]))]
 
-        for filter_col in ['APP_TYPE', 'APP_VERSION', 'Agent', 'Channel']:
+        for filter_col in ['Channel', 'APP_TYPE', 'APP_VERSION', 'Agent']:
             if filter_col in df.columns:
                 options = xls.parse(survey_type)[filter_col].dropna().unique().tolist()
                 selected = st.multiselect(filter_col, options, default=options)
