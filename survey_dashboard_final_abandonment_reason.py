@@ -26,42 +26,49 @@ if uploaded_file:
     with st.sidebar:
         st.header("Filters")
         date_range = st.date_input("Date Range", [df['Date'].min(), df['Date'].max()])
-        df = df[(df['Date'] >= pd.to_datetime(date_range[0])) & (df['Date'] <= pd.to_datetime(date_range[1]))]
 
+        selected_filters = {}
         for filter_col in ['Channel', 'APP_TYPE', 'APP_VERSION', 'Agent']:
             if filter_col in df.columns:
                 df[filter_col] = df[filter_col].astype(str).str.strip()
                 options = sorted(df[filter_col].dropna().unique().tolist())
                 selected = st.multiselect(filter_col, options, default=options)
-                if selected:
-                    df = df[df[filter_col].isin(selected)]
+                selected_filters[filter_col] = selected
 
-    csat_cols = [col for col in df.columns if 'csat' in col.lower()]
-    ces_cols = [col for col in df.columns if 'ces' in col.lower()]
-    nps_cols = [col for col in df.columns if 'nps' in col.lower()]
-    fixed_cols = [col for col in df.columns if 'fixed' in col.lower()]
+    # Apply filters outside sidebar
+    filtered_df = df[
+        (df['Date'] >= pd.to_datetime(date_range[0])) &
+        (df['Date'] <= pd.to_datetime(date_range[1]))
+    ]
+    for col, selected_values in selected_filters.items():
+        filtered_df = filtered_df[filtered_df[col].isin(selected_values)]
+
+    csat_cols = [col for col in filtered_df.columns if 'csat' in col.lower()]
+    ces_cols = [col for col in filtered_df.columns if 'ces' in col.lower()]
+    nps_cols = [col for col in filtered_df.columns if 'nps' in col.lower()]
+    fixed_cols = [col for col in filtered_df.columns if 'fixed' in col.lower()]
 
     st.subheader(f"Survey Results: {survey_type}")
     cols = st.columns(4)
-    cols[0].metric("Responses", len(df))
+    cols[0].metric("Responses", len(filtered_df))
 
     if csat_cols:
-        df[csat_cols[0]] = pd.to_numeric(df[csat_cols[0]], errors='coerce')
-        avg_csat = df[csat_cols[0]].mean() if csat_cols else None
+        filtered_df[csat_cols[0]] = pd.to_numeric(filtered_df[csat_cols[0]], errors='coerce')
+        avg_csat = filtered_df[csat_cols[0]].mean() if csat_cols else None
         cols[1].metric("Avg CSAT", round(avg_csat, 2) if avg_csat else "N/A")
 
     if ces_cols:
-        df[ces_cols[0]] = pd.to_numeric(df[ces_cols[0]], errors='coerce')
-        avg_ces = df[ces_cols[0]].mean()
+        filtered_df[ces_cols[0]] = pd.to_numeric(filtered_df[ces_cols[0]], errors='coerce')
+        avg_ces = filtered_df[ces_cols[0]].mean()
         cols[2].metric("Avg CES", round(avg_ces, 2) if avg_ces else "N/A")
 
     if nps_cols:
-        df[nps_cols[0]] = pd.to_numeric(df[nps_cols[0]], errors='coerce')
+        filtered_df[nps_cols[0]] = pd.to_numeric(filtered_df[nps_cols[0]], errors='coerce')
         nps_col = nps_cols[0]
-        promoters = df[nps_col][df[nps_col] >= 9].count()
-        passives = df[nps_col][(df[nps_col] >= 7) & (df[nps_col] <= 8)].count()
-        detractors = df[nps_col][df[nps_col] <= 6].count()
-        total = df[nps_col].count()
+        promoters = filtered_df[nps_col][filtered_df[nps_col] >= 9].count()
+        passives = filtered_df[nps_col][(filtered_df[nps_col] >= 7) & (filtered_df[nps_col] <= 8)].count()
+        detractors = filtered_df[nps_col][filtered_df[nps_col] <= 6].count()
+        total = filtered_df[nps_col].count()
         tnps = ((promoters - detractors) / total * 100) if total else 0
         cols[3].metric("t-NPS", round(tnps, 2))
         st.markdown(f"**Promoters**: {promoters} ({promoters/total:.1%})  |  "
@@ -69,8 +76,8 @@ if uploaded_file:
                     f"**Detractors**: {detractors} ({detractors/total:.1%})")
 
     st.markdown("### Scores by EntryPoint")
-    if 'EntryPoint' in df.columns:
-        group = df.groupby('EntryPoint')
+    if 'EntryPoint' in filtered_df.columns:
+        group = filtered_df.groupby('EntryPoint')
 
         agg_dict = {}
         if csat_cols:
@@ -97,14 +104,14 @@ if uploaded_file:
 
         if "abandonment" in survey_type.lower() and fixed_cols:
             for col in fixed_cols:
-                reason_freq = df.groupby('EntryPoint')[col].value_counts().unstack().fillna(0).astype(int)
+                reason_freq = filtered_df.groupby('EntryPoint')[col].value_counts().unstack().fillna(0).astype(int)
                 summary = pd.merge(summary, reason_freq, on='EntryPoint', how='left')
 
         st.dataframe(summary)
 
     st.markdown("### Fixed-Choice Reason Frequencies")
     for reason_col in fixed_cols:
-        reason_counts = df[reason_col].value_counts().reset_index()
+        reason_counts = filtered_df[reason_col].value_counts().reset_index()
         reason_counts.columns = ['Reason', 'Count']
         fig = px.bar(reason_counts, x='Reason', y='Count', title=f"{reason_col} - Frequency")
         st.plotly_chart(fig, use_container_width=True)
